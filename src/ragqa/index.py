@@ -119,7 +119,7 @@ class HybridIndex:
             pickle.dump(self, fh)
 
     @staticmethod
-    def load(path: str | Path) -> "HybridIndex":
+    def load(path: str | Path) -> HybridIndex:
         with open(path, "rb") as fh:
             index = pickle.load(fh)  # noqa: S301  (only ever loads an index this tool wrote)
         if not isinstance(index, HybridIndex):

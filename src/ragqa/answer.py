@@ -15,7 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from .chunk import split_sentences
-from .index import HybridIndex, Hit, tokenize
+from .index import Hit, HybridIndex, tokenize
 
 NO_ANSWER = "I could not find that in these documents."
 
@@ -61,7 +61,7 @@ def extractive_answer(question: str, hits: list[Hit], max_sentences: int = 3,
     scored: list[tuple[float, str]] = []
     for hit in hits:
         sentences = split_sentences(hit.chunk.text)
-        for sentence, score in zip(sentences, _sentence_scores(question, sentences)):
+        for sentence, score in zip(sentences, _sentence_scores(question, sentences), strict=True):
             if score > 0:
                 # heading words count too: "Hotels" lives under "Travel"
                 heading_bonus = 0.15 if set(tokenize(hit.chunk.heading)) & set(tokenize(question)) else 0.0

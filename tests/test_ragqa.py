@@ -41,7 +41,8 @@ def test_long_sections_are_split_with_overlap():
     body = " ".join(f"Sentence number {i} about policy." for i in range(60))
     chunks = chunk_document(f"# T\n\n## S\n\n{body}", "big.md", max_words=40, overlap_sentences=1)
     assert len(chunks) > 3
-    for a, b in zip(chunks, chunks[1:]):
+    # Pairs of neighbours, so the offset list is one shorter by construction.
+    for a, b in zip(chunks, chunks[1:], strict=False):
         assert split_sentences(a.text)[-1] == split_sentences(b.text)[0], "windows should overlap"
 
 
