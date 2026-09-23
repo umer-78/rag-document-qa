@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAG Document QA — Interactive Demo</title>
+<style>
+:root {
+  --bg: #f6f7f9; --surface: #ffffff; --surface-2: #eef0f4; --border: #dde1e8;
+  --text: #16181d; --muted: #5d6573; --accent: #2563eb; --accent-ink: #ffffff;
+  --good: #15803d; --bad: #b91c1c; --radius: 12px;
+  --shadow: 0 1px 2px rgb(16 24 40 / 0.06), 0 4px 16px rgb(16 24 40 / 0.05);
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1116; --surface: #161a21; --surface-2: #1d222b; --border: #2a303b;
+    --text: #e8eaee; --muted: #9aa3b2; --accent: #60a5fa; --accent-ink: #0b1220;
+    --good: #4ade80; --bad: #f87171; --shadow: none; color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+a { color: var(--accent); }
+.wrap { max-width: 1040px; margin: 0 auto; padding: 24px 16px 48px; }
+header { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; justify-content: space-between; margin-bottom: 8px; }
+header h1 { margin: 0; font-size: 1.7rem; letter-spacing: -0.02em; }
+header p { margin: 4px 0 0; color: var(--muted); max-width: 640px; }
+.gh { font-weight: 600; text-decoration: none; border: 1px solid var(--border); background: var(--surface); padding: 8px 14px; border-radius: var(--radius); }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 18px; margin-top: 16px; }
+.card h2 { margin: 0 0 12px; font-size: 1.05rem; }
+.qrow { display: flex; gap: 8px; flex-wrap: wrap; }
+.qrow input { flex: 1; min-width: 220px; }
+label { display: block; font-size: 0.82rem; color: var(--muted); margin-bottom: 4px; }
+input, select, button { font: inherit; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+button { background: var(--accent); color: var(--accent-ink); border: none; cursor: pointer; font-weight: 600; }
+button:hover { filter: brightness(1.08); }
+button.ghost { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
+.examples { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.ex { font-size: 0.82rem; padding: 5px 11px; border-radius: 99px; background: var(--surface-2); border: 1px solid var(--border); cursor: pointer; }
+.ex:hover { border-color: var(--accent); color: var(--accent); }
+.answer { background: var(--surface-2); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 8px; padding: 14px; margin-top: 14px; font-size: 1rem; line-height: 1.65; }
+.answer.none { border-left-color: var(--bad); color: var(--muted); }
+.sources { margin-top: 10px; padding-left: 22px; font-size: 0.85rem; color: var(--muted); }
+.sources li { margin: 3px 0; font-family: var(--mono); font-size: 0.8rem; }
+.chunks { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+.chunk { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: var(--surface); }
+.chunk .head { display: flex; justify-content: space-between; gap: 8px; font-size: 0.78rem; color: var(--muted); font-family: var(--mono); flex-wrap: wrap; }
+.chunk .score { color: var(--accent); font-weight: 700; }
+.chunk .text { font-size: 0.88rem; margin-top: 5px; line-height: 1.5; }
+.chunk .text mark { background: color-mix(in srgb, var(--accent) 22%, transparent); color: inherit; border-radius: 3px; padding: 0 2px; }
+.pipeline { font-family: var(--mono); font-size: 0.8rem; color: var(--muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; margin-top: 12px; overflow-x: auto; }
+.stats { display: flex; gap: 16px; flex-wrap: wrap; font-size: 0.85rem; color: var(--muted); margin-top: 10px; }
+.stats b { font-family: var(--mono); color: var(--text); }
+.docs { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.doc { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 0.85rem; }
+.doc .n { font-family: var(--mono); font-weight: 700; font-size: 0.8rem; }
+.doc .c { color: var(--muted); font-size: 0.78rem; }
+footer { margin-top: 32px; text-align: center; color: var(--muted); font-size: 0.85rem; }
+footer a { color: var(--muted); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+@media (max-width: 640px) { .qrow { flex-direction: column; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div>
+    <h1>RAG Document QA</h1>
+    <p>Ask questions about your documents and get an answer with citations. Retrieval-augmented generation without the generation bill: chunking, hybrid BM25 + TF-IDF retrieval, and an extractive answerer that can only quote what is in your files — all in your browser.</p>
+  </div>
+  <a class="gh" href="https://github.com/umer-78/rag-document-qa" rel="noopener">View on GitHub</a>
+</header>
+
+<main>
+<section class="card" aria-label="Ask a question">
+  <h2>Ask</h2>
+  <form class="qrow" id="askForm">
+    <label class="sr" for="q">Question</label>
+    <input id="q" type="search" placeholder="how many annual leave days do I get" autocomplete="off">
+    <label class="sr" for="k">Chunks to retrieve</label>
+    <select id="k"><option>3</option><option selected>4</option><option>6</option></select>
+    <button type="submit">Ask</button>
+  </form>
+  <div class="examples" id="examples">
+    <button class="ex" type="button">how many annual leave days do I get</button>
+    <button class="ex" type="button">what is the hotel limit abroad</button>
+    <button class="ex" type="button">how long is the on-call rotation</button>
+    <button class="ex" type="button">what is the refund limit</button>
+    <button class="ex" type="button">what is the learning budget</button>
+    <button class="ex" type="button">what is the notice period</button>
+  </div>
+  <div class="pipeline">documents → chunk (by heading, with overlap) → index (BM25 + TF-IDF) → top-k chunks → extractive answer + citations</div>
+
+  <div class="answer" id="answer" aria-live="polite">Ask a question to see an extractive answer built only from sentences in the corpus.</div>
+  <ol class="sources" id="sources"></ol>
+  <div class="stats" id="stats"></div>
+
+  <div class="chunks" id="chunks"></div>
+</section>
+
+<section class="card" aria-label="Indexed documents">
+  <h2>Indexed corpus</h2>
+  <p style="margin-top:-6px;color:var(--muted);font-size:.88rem">Three documents from the sample corpus: the employee handbook, expenses &amp; travel, and engineering onboarding. Chunking splits on markdown headings, so a chunk never crosses a topic boundary.</p>
+  <div class="docs" id="docs"></div>
+  <div class="stats" id="corpusStats"></div>
+</section>
+</main>
+
+<footer>
+  <p>23 tests passing · <a href="https://github.com/umer-78">github.com/umer-78</a></p>
+</footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  const $ = id => document.getElementById(id);
+
+  // --- sample corpus (from rag-document-qa/corpus) ---
+  const DOCS = [
+    {
+      name: "employee-handbook.md",
+      text: `# Northwind Labs Employee Handbook
+
+## Working hours
+Core hours are 11:00 to 16:00 Pakistan Standard Time. Outside core hours you choose when you work, as long as your week adds up to 40 hours. Anything past 45 hours in a week should be flagged to your manager: consistently long weeks are treated as a planning problem, not as commitment.
+
+## Remote and office work
+Everyone is remote by default. The Lahore office is open Monday to Thursday and has 24 desks, booked through the internal desk app. Teams meet in person at least once a quarter; the company pays travel and one night of accommodation for those visits.
+
+## Annual leave
+Full-time employees get 24 days of paid annual leave a year, plus public holidays. Leave accrues monthly at 2 days per completed month. Up to 5 unused days carry into the next year and must be used before 31 March; anything above 5 days is paid out at the end of December.
+Leave is requested in the HR portal at least 7 days ahead for absences of 3 days or more. Your manager answers within 2 working days. Requests are declined only when two people on the same team are already away.
+
+## Sick leave
+10 paid sick days a year, no medical certificate needed for the first 3 consecutive days. Sick days do not come out of annual leave.
+
+## Parental leave
+Primary carers get 16 weeks at full pay, secondary carers 4 weeks at full pay. Both can be taken in up to three blocks within the first 18 months.
+
+## Probation and notice
+Probation is 3 months, extended once at most. Notice is 30 days during the first year and 60 days after that, on both sides.
+
+## Equipment
+Every employee gets a laptop, an external monitor and a PKR 60,000 budget for a desk, chair and accessories, refreshed every 3 years. Equipment stays with the company and is returned on the last working day.
+
+## Learning budget
+PKR 120,000 per person per year for courses, books and conferences, approved by your manager. Certification exam fees are covered twice per certification.`
+    },
+    {
+      name: "expenses-and-travel.md",
+      text: `# Expenses and Travel
+
+## Principle
+Spend the company's money as carefully as your own, and never spend it on something you would be uncomfortable explaining in an all-hands.
+
+## Limits without pre-approval
+Up to PKR 25,000 per item, or PKR 60,000 per month in total, no pre-approval is needed. Above that, ask your manager in writing first.
+
+## Claiming
+Claims go through the expense portal within 30 days, with a photo of the receipt. Reimbursement lands with the next payroll run if the claim is filed before the 25th of the month.
+
+## Travel
+Economy class for flights under 6 hours, premium economy above. Hotels up to PKR 30,000 a night in Pakistan and USD 180 a night elsewhere. Book at least 14 days ahead when the trip is planned. Airport transfers and visa fees are covered.
+
+## Daily allowance
+A flat PKR 5,000 per day inside Pakistan and USD 60 per day abroad for meals and incidentals. No receipts needed for the daily allowance; it is not paid when meals are provided by the event.
+
+## Client entertainment
+Client meals are reimbursed up to PKR 8,000 per head, with the names of everyone present recorded in the claim. Alcohol is not reimbursed.
+
+## Home internet and phone
+PKR 6,000 a month towards internet, paid automatically with salary. A phone bill is reimbursed only for people carrying an on-call phone.
+
+## What is not covered
+Fines, traffic tickets, personal travel extensions, airport lounge memberships, and upgrades booked on the day of travel.`
+    },
+    {
+      name: "engineering-onboarding.md",
+      text: `# Engineering Onboarding
+
+## Your first day
+You will be given access to the code host, the cloud console, the ticket tracker and the on-call tool. If something is missing, ask in #it-help rather than waiting. Your buddy runs a 30-minute walkthrough of the architecture.
+
+## Development environment
+The platform runs on Python 3.11 and Node 20. Clone the monorepo, run make bootstrap, then make test. The whole suite should finish in under four minutes on a laptop; if it does not, say so, because slow tests get skipped and skipped tests stop working.
+
+## Branching and review
+Trunk-based: short-lived branches off main, merged with a pull request. Every pull request needs one approval, a green build, and a description that says what changed and how it was checked. Pull requests over 400 changed lines should be split.
+
+## Testing expectations
+New code ships with tests. Bug fixes ship with a test that fails before the fix. The build blocks on unit tests, linting and a type check. Flaky tests are quarantined within a day and fixed within a week, not muted and forgotten.
+
+## Deployment
+main deploys to staging automatically. Production deploys are manual, from a green staging build, and are announced in #deploys. Any engineer may deploy; the person who deploys watches the dashboards for 15 minutes afterwards.
+
+## On-call
+The on-call rotation is one week, handed over on Wednesday at 14:00. On-call covers paging alerts only; routine work pauses. Compensation is one extra day off per week of on-call. Being paged more than twice in a night is a bug in the alerting, and is reviewed at the weekly operations meeting.
+
+## Incidents
+Severity 1 means customers cannot use the product; severity 2 is serious degradation. Declare an incident early, in #incidents, with a channel topic that names the incident commander. Every severity 1 gets a written review within five working days, focused on causes rather than people.`
+    }
+  ];
+
+  // --- chunking: split on markdown headings, keep heading path, window long sections ---
+  const HEADING = /^(#{1,6})\s+(.*)$/;
+  const SENTENCE_SPLIT = /(?<=[.!?])\s+(?=[A-Z0-9])/;
+
+  function splitSentences(text) {
+    return text.trim().split(SENTENCE_SPLIT).map(s => s.trim()).filter(Boolean);
+  }
+
+  function chunkDocument(text, source, maxWords, overlapSentences) {
+    maxWords = maxWords || 180;
+    overlapSentences = overlapSentences == null ? 1 : overlapSentences;
+    const sections = [];
+    let path = [];
+    let buffer = [];
+    const flush = () => {
+      if (buffer.some(l => l.trim())) sections.push({ heading: path.join(" > "), lines: buffer.slice() });
+      buffer = [];
+    };
+    for (const line of text.split("\n")) {
+      const m = HEADING.exec(line);
+      if (m) {
+        flush();
+        const level = m[1].length;
+        path = path.slice(0, level - 1).concat(m[2].trim());
+      } else buffer.push(line);
+    }
+    flush();
+
+    const chunks = [];
+    for (const sec of sections) {
+      const body = sec.lines.join("\n").trim();
+      if (!body) continue;
+      const sentences = splitSentences(body).length ? splitSentences(body) : [body];
+      let window = [];
+      let words = 0;
+      for (const sentence of sentences) {
+        const n = sentence.split(/\s+/).length;
+        if (window.length && words + n > maxWords) {
+          chunks.push({ text: window.join(" "), source, heading: sec.heading, index: chunks.length });
+          window = overlapSentences ? window.slice(-overlapSentences) : [];
+          words = window.reduce((s, x) => s + x.split(/\s+/).length, 0);
+        }
+        window.push(sentence);
+        words += n;
+      }
+      if (window.length) chunks.push({ text: window.join(" "), source, heading: sec.heading, index: chunks.length });
+    }
+    return chunks;
+  }
+
+  // --- tokenise: lowercase alphanumeric, drop stopwords, small suffix stemmer ---
+  const TOKEN = /[a-z0-9]+/g;
+  const STOP = new Set(["the","a","an","of","to","and","is","are","was","were","be","in","on","for","it","this","that","with","as","at","by","or","from","what","which","how","do","does","did","can","i","we","you","our","my"]);
+
+  function stem(word) {
+    if (/(ss|us|is)$/.test(word)) return word;
+    for (const suffix of ["ies","es","ing","ed","s"]) {
+      if (word.length > suffix.length + 2 && word.endsWith(suffix)) {
+        return word.slice(0, -suffix.length) + (suffix === "ies" ? "y" : "");
+      }
+    }
+    return word;
+  }
+
+  function tokenize(text, dropStop, doStem) {
+    dropStop = dropStop !== false; doStem = doStem !== false;
+    let tokens = text.toLowerCase().match(TOKEN) || [];
+    if (dropStop) tokens = tokens.filter(t => !STOP.has(t));
+    return doStem ? tokens.map(stem) : tokens;
+  }
+
+  // --- Okapi BM25 (Robertson & Sparck Jones), written out ---
+  class BM25 {
+    constructor(documents, k1, b) {
+      this.k1 = k1 == null ? 1.5 : k1;
+      this.b = b == null ? 0.75 : b;
+      this.docs = documents;
+      this.lengths = documents.map(d => d.length);
+      this.avgLength = this.lengths.length ? this.lengths.reduce((a, x) => a + x, 0) / this.lengths.length : 0;
+      this.freqs = documents.map(d => {
+        const c = new Map();
+        for (const t of d) c.set(t, (c.get(t) || 0) + 1);
+        return c;
+      });
+      const df = new Map();
+      for (const doc of documents) {
+        for (const t of new Set(doc)) df.set(t, (df.get(t) || 0) + 1);
+      }
+      const n = documents.length;
+      this.idf = new Map();
+      for (const [term, count] of df) {
+        this.idf.set(term, Math.log(1 + (n - count + 0.5) / (count + 0.5)));
+      }
+    }
+    scores(queryTokens) {
+      const out = new Array(this.docs.length).fill(0);
+      for (const term of queryTokens) {
+        const idf = this.idf.get(term);
+        if (idf == null) continue;
+        for (let i = 0; i < this.docs.length; i++) {
+          const tf = this.freqs[i].get(term) || 0;
+          if (!tf) continue;
+          const denom = tf + this.k1 * (1 - this.b + this.b * this.lengths[i] / (this.avgLength || 1));
+          out[i] += idf * (tf * (this.k1 + 1)) / (denom || 1);
+        }
+      }
+      return out;
+    }
+  }
+
+  function normalise(values) {
+    const max = Math.max(...values, 0);
+    if (max <= 0) return values.map(() => 0);
+    return values.map(v => v / max);
+  }
+
+  // --- lightweight TF-IDF cosine (1-2 grams, sublinear tf) ---
+  class TfidfIndex {
+    constructor(texts) {
+      this.n = texts.length;
+      this.tokenLists = texts.map(t => {
+        const words = tokenize(t, true, false);
+        const grams = words.slice();
+        for (let i = 0; i < words.length - 1; i++) grams.push(words[i] + "_" + words[i + 1]);
+        return grams;
+      });
+      const df = new Map();
+      for (const list of this.tokenLists) {
+        for (const t of new Set(list)) df.set(t, (df.get(t) || 0) + 1);
+      }
+      this.idf = new Map();
+      for (const [t, d] of df) this.idf.set(t, Math.log((1 + this.n) / (1 + d)) + 1);
+      this.vectors = this.tokenLists.map(list => this._vec(list));
+      this.norms = this.vectors.map(v => {
+        let s = 0;
+        for (const w of v.values()) s += w * w;
+        return Math.sqrt(s) || 1;
+      });
+    }
+    _vec(tokenList) {
+      const tf = new Map();
+      for (const t of tokenList) tf.set(t, (tf.get(t) || 0) + 1);
+      const v = new Map();
+      for (const [t, f] of tf) {
+        const idf = this.idf.get(t);
+        if (idf == null) continue;
+        v.set(t, (1 + Math.log(f)) * idf);
+      }
+      return v;
+    }
+    cosine(query) {
+      const words = tokenize(query, true, false);
+      const grams = words.slice();
+      for (let i = 0; i < words.length - 1; i++) grams.push(words[i] + "_" + words[i + 1]);
+      const qv = this._vec(grams);
+      let qn = 0;
+      for (const w of qv.values()) qn += w * w;
+      qn = Math.sqrt(qn) || 1;
+      return this.vectors.map((dv, i) => {
+        let dot = 0;
+        for (const [t, w] of qv) {
+          const d = dv.get(t);
+          if (d) dot += w * d;
+        }
+        return dot / (qn * this.norms[i]);
+      });
+    }
+  }
+
+  class HybridIndex {
+    constructor(chunks, alpha) {
+      if (!chunks.length) throw new Error("cannot index an empty corpus");
+      this.chunks = chunks;
+      this.alpha = alpha == null ? 0.6 : alpha;
+      this.texts = chunks.map(c => (c.heading ? c.heading + "\n" + c.text : c.text));
+      this.bm25 = new BM25(this.texts.map(t => tokenize(t)));
+      this.tfidf = new TfidfIndex(this.texts);
+    }
+    search(question, k, minScore) {
+      k = k || 4;
+      minScore = minScore == null ? 0.05 : minScore;
+      if (!question.trim()) return [];
+      const bm = this.bm25.scores(tokenize(question));
+      const cos = this.tfidf.cosine(question);
+      const nb = normalise(bm);
+      const nc = normalise(cos);
+      const blended = nb.map((v, i) => this.alpha * v + (1 - this.alpha) * nc[i]);
+      const order = blended.map((v, i) => [v, i]).sort((a, b) => b[0] - a[0]).slice(0, k);
+      return order
+        .filter(([score]) => score >= minScore)
+        .map(([score, i]) => ({ chunk: this.chunks[i], score, bm25: bm[i], cosine: cos[i] }));
+    }
+  }
+
+  // --- extractive answerer ---
+  const NO_ANSWER = "I could not find that in these documents.";
+
+  function sentenceScores(question, sentences) {
+    const q = new Set(tokenize(question));
+    return sentences.map(s => {
+      const words = tokenize(s);
+      if (!words.length) return 0;
+      const uniq = new Set(words);
+      let overlap = 0;
+      for (const w of uniq) if (q.has(w)) overlap++;
+      return overlap / (q.size || 1) + 0.25 * overlap / uniq.size;
+    });
+  }
+
+  function extractiveAnswer(question, hits, maxSentences, relativeCutoff) {
+    maxSentences = maxSentences || 3;
+    relativeCutoff = relativeCutoff == null ? 0.55 : relativeCutoff;
+    const scored = [];
+    for (const hit of hits) {
+      const sentences = splitSentences(hit.chunk.text);
+      const scores = sentenceScores(question, sentences);
+      const qTokens = new Set(tokenize(question));
+      const hTokens = new Set(tokenize(hit.chunk.heading));
+      let headingBonus = 0;
+      for (const t of hTokens) if (qTokens.has(t)) { headingBonus = 0.15; break; }
+      sentences.forEach((sentence, i) => {
+        const score = scores[i];
+        if (score > 0) scored.push({ score: (score + headingBonus) * (0.5 + hit.score), sentence });
+      });
+    }
+    if (!scored.length) return hits.length ? hits[0].chunk.text.slice(0, 400) : NO_ANSWER;
+    scored.sort((a, b) => b.score - a.score);
+    const best = scored[0].score;
+    const chosen = [];
+    const seen = new Set();
+    for (const item of scored) {
+      if (item.score < best * relativeCutoff) break;
+      const key = item.sentence.toLowerCase().slice(0, 60);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      chosen.push(item.sentence);
+      if (chosen.length >= maxSentences) break;
+    }
+    return chosen.join(" ");
+  }
+
+  function citation(chunk) {
+    return chunk.source + "#" + chunk.index + (chunk.heading ? " (" + chunk.heading + ")" : "");
+  }
+
+  function answerQuestion(question, index, k) {
+    const hits = index.search(question, k);
+    if (!hits.length) return { question, text: NO_ANSWER, citations: [], hits: [], confidence: 0 };
+    const text = extractiveAnswer(question, hits);
+    const citations = [...new Set(hits.map(h => citation(h.chunk)))];
+    return { question, text, citations, hits, confidence: hits[0].score };
+  }
+
+  // --- build index once ---
+  let allChunks = [];
+  const docChunkCounts = [];
+  for (const doc of DOCS) {
+    const cs = chunkDocument(doc.text, doc.name);
+    docChunkCounts.push({ name: doc.name, count: cs.length });
+    allChunks = allChunks.concat(cs);
+  }
+  const index = new HybridIndex(allChunks);
+
+  function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+
+  function highlight(text, question) {
+    const words = [...new Set(tokenize(question, true, false))].filter(w => w.length > 2);
+    let out = esc(text);
+    for (const w of words) {
+      const re = new RegExp("\\b(" + w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\w*)", "gi");
+      out = out.replace(re, m => "<mark>" + m + "</mark>");
+    }
+    return out;
+  }
+
+  function ask(question) {
+    const k = Number($("k").value) || 4;
+    const result = answerQuestion(question, index, k);
+    const answerEl = $("answer");
+    if (!result.hits.length) {
+      answerEl.className = "answer none";
+      answerEl.textContent = NO_ANSWER;
+      $("sources").innerHTML = "";
+      $("stats").innerHTML = "";
+      $("chunks").innerHTML = '<p style="color:var(--muted);font-size:.9rem">No chunks cleared the minimum score — the retriever would rather return nothing than guess.</p>';
+      return;
+    }
+    answerEl.className = "answer";
+    answerEl.textContent = result.text;
+    $("sources").innerHTML = result.citations.map((c, i) => "<li>[" + (i + 1) + "] " + esc(c) + "</li>").join("");
+    $("stats").innerHTML =
+      "<span>confidence <b>" + result.confidence.toFixed(3) + "</b></span>" +
+      "<span>chunks retrieved <b>" + result.hits.length + "</b></span>" +
+      "<span>citations <b>" + result.citations.length + "</b></span>";
+    $("chunks").innerHTML = result.hits.map(h => {
+      const scores = [];
+      scores.push("score " + h.score.toFixed(3));
+      scores.push("bm25 " + h.bm25.toFixed(2));
+      scores.push("cosine " + h.cosine.toFixed(2));
+      return '<div class="chunk">' +
+        '<div class="head"><span>' + esc(citation(h.chunk)) + '</span><span class="score">' + scores.join(" · ") + "</span></div>" +
+        '<div class="text">' + highlight(h.chunk.text, question) + "</div></div>";
+    }).join("");
+  }
+
+  // --- wire up ---
+  $("askForm").addEventListener("submit", e => { e.preventDefault(); ask($("q").value); });
+  $("examples").addEventListener("click", e => {
+    const btn = e.target.closest(".ex");
+    if (!btn) return;
+    $("q").value = btn.textContent;
+    ask(btn.textContent);
+  });
+
+  $("docs").innerHTML = docChunkCounts.map(d =>
+    '<div class="doc"><div class="n">' + esc(d.name) + '</div><div class="c">' + d.count + " chunks</div></div>"
+  ).join("");
+  $("corpusStats").innerHTML =
+    "<span>documents <b>" + DOCS.length + "</b></span>" +
+    "<span>chunks <b>" + allChunks.length + "</b></span>" +
+    "<span>index <b>hybrid BM25 + TF-IDF</b></span>";
+})();
+</script>
+</body>
+</html>
