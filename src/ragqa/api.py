@@ -20,6 +20,12 @@ def create_app(index_path: Path, corpus_path: Path):
     app = FastAPI(title="ragqa", version="1.0.0",
                   description="Question answering over a local document collection.")
 
+    @app.get("/", include_in_schema=False)
+    def root():
+        from fastapi.responses import RedirectResponse
+
+        return RedirectResponse("/docs")
+
     @app.get("/health")
     def health() -> dict:
         return {"status": "ok", "chunks": len(index.chunks),

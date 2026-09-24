@@ -179,6 +179,8 @@ def test_http_api():
 
     client = TestClient(create_app(Path("does-not-exist.pkl"), CORPUS))
     assert client.get("/health").json()["documents"] == 6
+    home = client.get("/", follow_redirects=False)
+    assert home.status_code == 307 and home.headers["location"] == "/docs"
     body = client.get("/ask", params={"q": "how many annual leave days"}).json()
     assert "24 days" in body["answer"]
     assert body["citations"]
