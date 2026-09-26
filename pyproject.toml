@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ragqa"
+name = "rag-document-qa"
 version = "1.0.0"
-description = "Ask questions about your own documents: chunking, BM25 + TF-IDF hybrid retrieval, extractive answers with citations."
+description = "Ask questions about your own documents: structure-aware chunking, BM25 + TF-IDF hybrid retrieval, extractive answers with citations, CLI and HTTP API. No API key."
 readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "Umer Hashmi" }]
