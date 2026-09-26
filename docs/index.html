@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html data-scene="ml" lang="en">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -659,6 +659,7 @@ Severity 1 means customers cannot use the product; severity 2 is serious degrada
     allChunks = allChunks.concat(cs);
   }
   const index = new HybridIndex(allChunks);
+  window.__ragChunks = allChunks.map(c => ({ text: c.text, source: c.source, heading: c.heading || "" }));
 
   function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 
@@ -686,6 +687,7 @@ Severity 1 means customers cannot use the product; severity 2 is serious degrada
     }
     answerEl.className = "answer";
     answerEl.textContent = result.text;
+    window.dispatchEvent(new CustomEvent("rag:answer", { detail: { hits: result.hits.map(h => allChunks.indexOf(h.chunk)) } }));
     $("sources").innerHTML = result.citations.map((c, i) => "<li>[" + (i + 1) + "] " + esc(c) + "</li>").join("");
     $("stats").innerHTML =
       "<span>confidence <b>" + result.confidence.toFixed(3) + "</b></span>" +
@@ -827,146 +829,109 @@ Severity 1 means customers cannot use the product; severity 2 is serious degrada
       window.addEventListener('resize', soon);
     })();
   </script>
-<!-- demo-3d:start v1 -->
+<!-- three-3d:start v1 -->
 <style>
-  header.top.hero3d { position: relative; overflow: hidden; isolation: isolate; min-height: 240px; padding: 32px 28px; flex-direction: column; align-items: flex-start; justify-content: center; gap: 18px; border: 1px solid var(--border); border-radius: 20px; background: var(--surface, #fff); box-shadow: var(--shadow-sm, 0 1px 3px rgb(0 0 0 / .06)); }
-  header.top.hero3d > * { position: relative; z-index: 1; }
-  header.top.hero3d .brand { max-width: min(600px, 56%); }
-  .scene3d { position: absolute !important; z-index: 0 !important; inset: 0 0 0 44%; pointer-events: none; opacity: 0; transition: opacity 1s ease; -webkit-mask-image: linear-gradient(90deg, transparent, #000 30%); mask-image: linear-gradient(90deg, transparent, #000 30%); }
-  .scene3d.on { opacity: 1; }
-  .scene3d canvas { display: block; width: 100% !important; height: 100% !important; }
-  @media (max-width: 720px) {
-    header.top.hero3d .brand { max-width: 100%; }
-    .scene3d { inset: 0; opacity: 0; -webkit-mask-image: linear-gradient(180deg, #000 20%, transparent 95%); mask-image: linear-gradient(180deg, #000 20%, transparent 95%); }
-    .scene3d.on { opacity: .35; }
-  }
+  .rag3d { position: relative; margin-top: 14px; border-radius: 14px; overflow: hidden; background: var(--surface-2, #f3f4f6); height: 360px; touch-action: none; cursor: grab; }
+  .rag3d canvas { display: block; width: 100% !important; height: 100% !important; }
+  .rag3d .title { position: absolute; left: 12px; top: 10px; font-size: 13px; font-weight: 600; pointer-events: none; }
+  .rag3d .hint { position: absolute; left: 12px; bottom: 10px; font-size: 12px; color: var(--muted, #6b7280); pointer-events: none; }
+  .rag3d .legend3d { position: absolute; right: 12px; top: 10px; display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px; pointer-events: none; max-width: 65%; justify-content: flex-end; }
+  .rag3d .legend3d i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
+  .rag3d .tip { position: absolute; max-width: 280px; padding: 6px 8px; border-radius: 6px; background: var(--surface, #fff); border: 1px solid var(--border, #e5e7eb); font-size: 12px; pointer-events: none; transform: translate(-50%, -115%); }
 </style>
 <script type="module">
-  // Project-themed 3D header (three.js). One renderer per page, paused when
-  // scrolled away or the tab is hidden, still for reduced motion, and the page
-  // is unchanged if WebGL is unavailable.
+  // The document index in 3D (three.js): every chunk placed by its TF-IDF
+  // vector projected onto three main directions (PCA), coloured by document.
+  // Chunks about the same thing sit together; when you ask a question the
+  // retrieved chunks light up and pull toward the centre.
   import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.min.js';
-  const header = document.querySelector('header.top');
-  const kind = document.documentElement.dataset.scene || 'ml';
-  let renderer = null;
-  try { renderer = header && new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'low-power' }); } catch { renderer = null; }
-  if (renderer) {
+  const chunks = window.__ragChunks;
+  const anchor = document.querySelector('section[aria-label="Ask a question"]');
+  if (anchor && Array.isArray(chunks) && chunks.length > 3) {
     const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-    header.classList.add('hero3d');
-    const box = document.createElement('div'); box.className = 'scene3d'; box.setAttribute('aria-hidden', 'true');
-    box.appendChild(renderer.domElement); header.prepend(box);
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(40, 2, 0.1, 100); camera.position.set(0, 0, 8);
-    const cssColor = (v, fb) => new THREE.Color(getComputedStyle(document.documentElement).getPropertyValue(v).trim() || fb);
-    const accent = cssColor('--accent', '#2563eb'), second = new THREE.Color('#7c3aed'), warm = new THREE.Color('#f59e0b');
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x3a4050, 1.1));
-    const key = new THREE.DirectionalLight(0xffffff, 1.3); key.position.set(4, 6, 8); scene.add(key);
-    const root = new THREE.Group(); scene.add(root);
-    const std = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.45, metalness: 0.15, ...o });
-    const tick = [];   // per-frame updaters (t in seconds)
-
-    const scenes = {
-      // security: a faceted shield core with packets orbiting on three rings
-      security() {
-        const core = new THREE.Mesh(new THREE.IcosahedronGeometry(1.5, 1), std(accent, { flatShading: true, transparent: true, opacity: 0.9 }));
-        const wire = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(1.95, 1)), new THREE.LineBasicMaterial({ color: accent, transparent: true, opacity: 0.35 }));
-        root.add(core, wire);
-        const packetGeo = new THREE.SphereGeometry(0.09, 8, 8);
-        [0, 1, 2].forEach((k) => {
-          const ring = new THREE.Group(); ring.rotation.set(k * 1.05, k * 0.6, 0); root.add(ring);
-          ring.add(new THREE.Mesh(new THREE.TorusGeometry(2.6, 0.012, 6, 90), new THREE.MeshBasicMaterial({ color: second, transparent: true, opacity: 0.35 })));
-          for (let i = 0; i < 5; i++) {
-            const p = new THREE.Mesh(packetGeo, new THREE.MeshBasicMaterial({ color: i % 2 ? accent : second })); ring.add(p);
-            tick.push((t) => { const a = t * (0.5 + k * 0.15) + (i / 5) * Math.PI * 2; p.position.set(Math.cos(a) * 2.6, Math.sin(a) * 2.6, 0); });
-          }
-        });
-        tick.push((t) => { core.rotation.set(t * 0.2, t * 0.3, 0); wire.rotation.set(-t * 0.1, -t * 0.15, 0); });
-      },
-      // network: a dotted globe with arcs travelling between points
-      network() {
-        const N = 900, R = 2.2, pos = new Float32Array(N * 3);
-        for (let i = 0; i < N; i++) { const y = 1 - (i / (N - 1)) * 2, r = Math.sqrt(1 - y * y), a = i * Math.PI * (3 - Math.sqrt(5)); pos.set([Math.cos(a) * r * R, y * R, Math.sin(a) * r * R], i * 3); }
-        const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-        const globe = new THREE.Points(g, new THREE.PointsMaterial({ color: accent, size: 0.045, transparent: true, opacity: 0.8 }));
-        root.add(globe);
-        const pick = () => { const i = Math.floor(Math.random() * N); return new THREE.Vector3(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]); };
-        for (let k = 0; k < 7; k++) {
-          const a = pick(), b = pick(), mid = a.clone().add(b).multiplyScalar(0.5).setLength(R * 1.45);
-          const curve = new THREE.QuadraticBezierCurve3(a, mid, b);
-          globe.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(curve.getPoints(40)), new THREE.LineBasicMaterial({ color: second, transparent: true, opacity: 0.5 })));
-          const dot = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), new THREE.MeshBasicMaterial({ color: warm })); globe.add(dot);
-          tick.push((t) => dot.position.copy(curve.getPoint(((t * 0.25) + k / 7) % 1)));
+    const docs = [...new Set(chunks.map((c) => c.source))];
+    const PALETTE = [0x2563eb, 0x059669, 0x7c3aed, 0xdb2777, 0xf59e0b, 0x0891b2, 0xdc2626];
+    const box = document.createElement('div'); box.className = 'rag3d'; box.setAttribute('role', 'img');
+    box.setAttribute('aria-label', 'Every indexed chunk placed in 3D by its words; retrieved chunks are highlighted');
+    box.innerHTML = `<span class="title">Index map (3D)</span><span class="legend3d">${docs.map((d, i) => `<span><i style="background:#${PALETTE[i % PALETTE.length].toString(16).padStart(6, '0')}"></i>${d.replace(/</g, '&lt;')}</span>`).join('')}</span><span class="hint">Ask a question — the chunks it retrieves light up · drag to turn, hover a dot</span>`;
+    anchor.appendChild(box);
+    const tip = document.createElement('div'); tip.className = 'tip'; tip.hidden = true; box.appendChild(tip);
+    let renderer;
+    try { renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true }); } catch { box.remove(); }
+    if (renderer) {
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); box.prepend(renderer.domElement);
+      // TF-IDF over the chunk texts (stop words out), then PCA to 3D
+      const STOP = new Set('the a an and or of to in on for is are be with as by at it this that from not no any all can must within will per each their our'.split(' '));
+      const toks = chunks.map((c) => (c.text.toLowerCase().match(/[a-z][a-z0-9]{2,}/g) || []).filter((w) => !STOP.has(w)));
+      const df = new Map(); toks.forEach((t) => new Set(t).forEach((w) => df.set(w, (df.get(w) || 0) + 1)));
+      const vocab = [...df.entries()].filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1]).slice(0, 300).map(([w]) => w);
+      const vi = new Map(vocab.map((w, i) => [w, i])), D = vocab.length, N = chunks.length;
+      const X = toks.map((t) => { const v = new Float64Array(D); t.forEach((w) => { const j = vi.get(w); if (j !== undefined) v[j] += 1; }); for (let j = 0; j < D; j++) v[j] *= Math.log(N / df.get(vocab[j])); const n = Math.hypot(...v) || 1; return v.map((x) => x / n); });
+      const mean = new Float64Array(D); X.forEach((v) => v.forEach((x, j) => (mean[j] += x / N)));
+      const C = X.map((v) => v.map((x, j) => x - mean[j]));
+      const comps = [];
+      for (let k = 0; k < 3; k++) {
+        let v = Float64Array.from({ length: D }, (_, i) => Math.sin(i * 1.3 + k + 1));
+        for (let it = 0; it < 60; it++) {
+          const s = C.map((row) => row.reduce((a, x, j) => a + x * v[j], 0));
+          let w = new Float64Array(D); C.forEach((row, i) => row.forEach((x, j) => (w[j] += x * s[i])));
+          for (const c of comps) { const dot = w.reduce((a, x, j) => a + x * c[j], 0); w = w.map((x, j) => x - dot * c[j]); }
+          const n = Math.hypot(...w) || 1; v = w.map((x) => x / n);
         }
-        tick.push((t) => { globe.rotation.y = t * 0.12; globe.rotation.x = 0.35; });
-      },
-      // ml: three layers of nodes with weighted links and a signal flowing through
-      ml() {
-        const layers = [5, 8, 8, 3], nodes = [];
-        const nodeGeo = new THREE.SphereGeometry(0.13, 16, 12);
-        layers.forEach((n, L) => { nodes[L] = []; for (let i = 0; i < n; i++) { const m = new THREE.Mesh(nodeGeo, std(L % 2 ? second : accent)); m.position.set((L - 1.5) * 1.6, (i - (n - 1) / 2) * 0.55, Math.sin(i * 1.7 + L) * 0.6); root.add(m); nodes[L].push(m); } });
-        const seg = [];
-        for (let L = 0; L < layers.length - 1; L++) for (const a of nodes[L]) for (const b of nodes[L + 1]) if (Math.random() < 0.55) seg.push(a.position, b.position);
-        root.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(seg), new THREE.LineBasicMaterial({ color: accent, transparent: true, opacity: 0.25 })));
-        tick.push((t) => { root.rotation.y = Math.sin(t * 0.3) * 0.5; nodes.flat().forEach((m, i) => m.scale.setScalar(1 + 0.35 * Math.max(0, Math.sin(t * 2.2 - m.position.x * 1.2 + i * 0.1)))); });
-      },
-      // data: a field of bars rising and falling like a live chart
-      data() {
-        const W = 12, D = 6, geo = new THREE.BoxGeometry(0.28, 1, 0.28);
-        const bars = new THREE.InstancedMesh(geo, std(0xffffff), W * D);
-        const m = new THREE.Matrix4(), c = new THREE.Color();
-        root.add(bars); root.rotation.set(0.55, -0.6, 0);
-        tick.push((t) => {
-          for (let x = 0; x < W; x++) for (let z = 0; z < D; z++) {
-            const h = 0.35 + 1.6 * (0.5 + 0.5 * Math.sin(x * 0.55 + t * 1.2) * Math.cos(z * 0.7 + t * 0.8)), i = x * D + z;
-            m.compose(new THREE.Vector3((x - W / 2) * 0.42, h / 2 - 1, (z - D / 2) * 0.42), new THREE.Quaternion(), new THREE.Vector3(1, h, 1));
-            bars.setMatrixAt(i, m); bars.setColorAt(i, c.copy(accent).lerp(second, h / 2));
-          }
-          bars.instanceMatrix.needsUpdate = true; bars.instanceColor.needsUpdate = true;
+        comps.push(v);
+      }
+      const P = C.map((row) => comps.map((c) => row.reduce((a, x, j) => a + x * c[j], 0)));
+      const mags = P.flat().map(Math.abs).sort((a, b) => a - b); const sc = 2.2 / (mags[Math.floor(mags.length * 0.9)] || 1);
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(42, 2, 0.1, 100); camera.position.set(0, 0, 8.2);
+      scene.add(new THREE.HemisphereLight(0xffffff, 0x445066, 1.2));
+      const key = new THREE.DirectionalLight(0xffffff, 1.1); key.position.set(3, 5, 6); scene.add(key);
+      const root = new THREE.Group(); scene.add(root);
+      const home = P.map((p) => new THREE.Vector3(...p.map((x) => Math.max(-2.8, Math.min(2.8, x * sc)))));
+      const meshes = chunks.map((c, i) => {
+        const m = new THREE.Mesh(new THREE.SphereGeometry(0.14, 14, 10), new THREE.MeshStandardMaterial({ color: PALETTE[docs.indexOf(c.source) % PALETTE.length], roughness: 0.45, transparent: true, opacity: 0.9 }));
+        m.position.copy(home[i]); m.userData = { i }; root.add(m); return m;
+      });
+      let hits = [];
+      const beams = new THREE.Group(); root.add(beams);
+      window.addEventListener('rag:answer', (e) => {
+        hits = e.detail.hits.filter((i) => i >= 0);
+        beams.clear();
+        hits.forEach((i) => beams.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), home[i]]), new THREE.LineBasicMaterial({ color: 0xf59e0b }))));
+      });
+      const orbit = { yaw: 0.4, pitch: 0.25, drag: false, x: 0, y: 0, auto: !reduce };
+      const ray = new THREE.Raycaster(), mouse = new THREE.Vector2();
+      box.addEventListener('pointerdown', (e) => { orbit.drag = true; orbit.auto = false; orbit.x = e.clientX; orbit.y = e.clientY; box.setPointerCapture(e.pointerId); });
+      box.addEventListener('pointerup', () => { orbit.drag = false; });
+      box.addEventListener('pointerleave', () => { tip.hidden = true; });
+      box.addEventListener('pointermove', (e) => {
+        const r = box.getBoundingClientRect();
+        if (orbit.drag) { orbit.yaw += (e.clientX - orbit.x) * 0.01; orbit.pitch = Math.max(-1.2, Math.min(1.2, orbit.pitch + (e.clientY - orbit.y) * 0.01)); orbit.x = e.clientX; orbit.y = e.clientY; return; }
+        mouse.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1); ray.setFromCamera(mouse, camera);
+        const hit = ray.intersectObjects(meshes)[0];
+        if (hit) { const c = chunks[hit.object.userData.i]; tip.textContent = `${c.source}${c.heading ? ' · ' + c.heading : ''} — ${c.text.slice(0, 110)}…`; tip.style.left = `${e.clientX - r.left}px`; tip.style.top = `${e.clientY - r.top}px`; tip.hidden = false; } else tip.hidden = true;
+      });
+      const fit = () => { const w = box.clientWidth, h = box.clientHeight; if (w && h) { renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); } };
+      new ResizeObserver(fit).observe(box); fit();
+      let raf = 0, visible = true;
+      function tick(t) {
+        raf = 0; if (!visible || document.hidden) return; raf = requestAnimationFrame(tick);
+        if (orbit.auto) orbit.yaw += 0.0025;
+        root.rotation.set(orbit.pitch, orbit.yaw, 0);
+        meshes.forEach((m, i) => {
+          const on = hits.includes(i);
+          m.scale.setScalar(on ? 1.9 + (reduce ? 0 : 0.2 * Math.sin(t * 0.006)) : 1);
+          m.material.opacity = hits.length && !on ? 0.35 : 0.95;
         });
-      },
-      // engine: nested rotating blocks, like data stacked in pages and indexes
-      engine() {
-        const cubes = [];
-        for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) for (let k = 0; k < 3; k++) {
-          const b = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.62, 0.62), std((i + j + k) % 2 ? accent : second, { transparent: true, opacity: 0.92 }));
-          b.userData.home = new THREE.Vector3(i - 1, j - 1, k - 1).multiplyScalar(0.72); b.position.copy(b.userData.home); root.add(b); cubes.push(b);
-        }
-        tick.push((t) => { root.rotation.set(t * 0.25, t * 0.35, 0); const s = 1 + 0.18 * (0.5 + 0.5 * Math.sin(t * 1.4)); cubes.forEach((b) => b.position.copy(b.userData.home).multiplyScalar(s)); });
-      },
-      // game: a voxel snake winding over a grid
-      game() {
-        const grid = new THREE.GridHelper(8, 16, accent, accent); grid.material.transparent = true; grid.material.opacity = 0.25; root.add(grid);
-        const body = [], geo = new THREE.BoxGeometry(0.42, 0.42, 0.42);
-        for (let i = 0; i < 14; i++) { const b = new THREE.Mesh(geo, std(i === 0 ? warm : accent)); root.add(b); body.push(b); }
-        const food = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 12), std(0xef4444)); food.position.set(1.5, 0.25, -1); root.add(food);
-        root.rotation.set(0.7, 0.5, 0);
-        tick.push((t) => { body.forEach((b, i) => { const u = t * 1.2 - i * 0.22; b.position.set(Math.sin(u) * 2.4, 0.22, Math.sin(u * 2) * 1.3); }); food.position.y = 0.3 + Math.sin(t * 3) * 0.08; });
-      },
-    };
-    (scenes[kind] || scenes.ml)();
-
-    const fit = () => { const w = box.clientWidth, h = box.clientHeight; if (w && h) { renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); } };
-    new ResizeObserver(fit).observe(box); fit();
-    const tilt = { x: 0, y: 0 };
-    const onMove = (x, y) => { tilt.x = (y / innerHeight - 0.5) * 0.3; tilt.y = (x / innerWidth - 0.5) * 0.4; };
-    addEventListener('pointermove', (e) => onMove(e.clientX, e.clientY), { passive: true });
-    let raf = 0, visible = true, t0 = performance.now();
-    function frame(now) {
-      raf = 0;
-      if (!visible || document.hidden) return;
-      const t = reduce ? 1.5 : (now - t0) / 1000;
-      for (const f of tick) f(t);
-      scene.rotation.x += (tilt.x - scene.rotation.x) * 0.05; scene.rotation.y += (tilt.y - scene.rotation.y) * 0.05;
-      renderer.render(scene, camera);
-      if (!reduce) raf = requestAnimationFrame(frame);
+        renderer.render(scene, camera);
+      }
+      new IntersectionObserver(([e]) => { visible = e.isIntersecting; if (visible && !raf) raf = requestAnimationFrame(tick); }).observe(box);
+      document.addEventListener('visibilitychange', () => { if (!document.hidden && visible && !raf) raf = requestAnimationFrame(tick); });
+      raf = requestAnimationFrame(tick);
     }
-    new IntersectionObserver(([e]) => { visible = e.isIntersecting; if (visible && !raf) raf = requestAnimationFrame(frame); }).observe(header);
-    document.addEventListener('visibilitychange', () => { if (!document.hidden && visible && !raf) raf = requestAnimationFrame(frame); });
-    raf = requestAnimationFrame((n) => { frame(n); box.classList.add('on'); });
   }
 </script>
-<!-- demo-3d:end -->
+<!-- three-3d:end -->
 <!-- motion-kit:body v1 -->
 <script src="https://cdn.jsdelivr.net/npm/motion@13.4.4/dist/motion.js" defer crossorigin="anonymous"></script>
 <script>
