@@ -3,6 +3,8 @@
 **Live demo:** https://umer-78.github.io/rag-document-qa/
 
 [![CI](https://github.com/umer-78/rag-document-qa/actions/workflows/ci.yml/badge.svg)](https://github.com/umer-78/rag-document-qa/actions/workflows/ci.yml)
+
+[![RAG Document Q&A: the live demo](.github/preview.jpg)](https://umer-78.github.io/rag-document-qa/)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![No API key](https://img.shields.io/badge/API%20key-not%20required-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-green)
