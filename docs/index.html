@@ -312,7 +312,15 @@ html.mk-pre header.top, html.mk-pre main section, html.mk-pre section.card, html
 
 <section class="card" aria-label="Indexed documents">
   <h2><span class="section-num">02</span> Indexed corpus</h2>
-  <p style="margin-top:-6px;color:var(--muted);font-size:.88rem">Three documents from the sample corpus: the employee handbook, expenses &amp; travel, and engineering onboarding. Chunking splits on markdown headings, so a chunk never crosses a topic boundary.</p>
+  <p style="margin-top:-6px;color:var(--muted);font-size:.88rem">Three documents from the sample corpus: the employee handbook, expenses &amp; travel, and engineering onboarding. Chunking splits on markdown headings, so a chunk never crosses a topic boundary — or paste your own below and ask about it instead.</p>
+  <div class="owndoc">
+    <textarea id="ownText" rows="5" spellcheck="false" placeholder="Paste your own document here — a policy, a contract, meeting notes, a README. Use '# Heading' lines to mark sections. Then index it and ask questions above; answers quote only your text."></textarea>
+    <div class="ownrow">
+      <button type="button" id="indexOwn">Index my document</button>
+      <button type="button" id="restoreCorpus" class="ghost" hidden>Restore the sample corpus</button>
+      <span id="ownMsg" class="ownmsg"></span>
+    </div>
+  </div>
   <div class="docs" id="docs"></div>
   <div class="stats" id="corpusStats"></div>
 </section>
@@ -669,13 +677,13 @@ Severity 1 means customers cannot use the product; severity 2 is serious degrada
 
   // --- build index once ---
   let allChunks = [];
-  const docChunkCounts = [];
+  let docChunkCounts = [];
   for (const doc of DOCS) {
     const cs = chunkDocument(doc.text, doc.name);
     docChunkCounts.push({ name: doc.name, count: cs.length });
     allChunks = allChunks.concat(cs);
   }
-  const index = new HybridIndex(allChunks);
+  let index = new HybridIndex(allChunks);
   window.__ragChunks = allChunks.map(c => ({ text: c.text, source: c.source, heading: c.heading || "" }));
 
   function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
@@ -730,17 +738,59 @@ Severity 1 means customers cannot use the product; severity 2 is serious degrada
     ask(btn.textContent);
   });
 
-  $("docs").innerHTML = docChunkCounts.map(d =>
-    '<div class="doc"><div class="n">' + esc(d.name) + '</div><div class="c">' + d.count + " chunks</div></div>"
-  ).join("");
-  $("corpusStats").innerHTML =
-    "<span>documents <b>" + DOCS.length + "</b></span>" +
-    "<span>chunks <b>" + allChunks.length + "</b></span>" +
-    "<span>index <b>hybrid BM25 + TF-IDF</b></span>";
+  function renderCorpus() {
+    $("docs").innerHTML = docChunkCounts.map(d =>
+      '<div class="doc"><div class="n">' + esc(d.name) + '</div><div class="c">' + d.count + " chunks</div></div>"
+    ).join("");
+    $("corpusStats").innerHTML =
+      "<span>documents <b>" + docChunkCounts.length + "</b></span>" +
+      "<span>chunks <b>" + allChunks.length + "</b></span>" +
+      "<span>index <b>hybrid BM25 + TF-IDF</b></span>";
+  }
+  renderCorpus();
+
+  // Paste your own document: re-chunk and re-index live, then questions run against it.
+  function reindex(docs) {
+    allChunks = [];
+    docChunkCounts = [];
+    for (const doc of docs) {
+      const cs = chunkDocument(doc.text, doc.name);
+      docChunkCounts.push({ name: doc.name, count: cs.length });
+      allChunks = allChunks.concat(cs);
+    }
+    index = new HybridIndex(allChunks);
+    window.__ragChunks = allChunks.map(c => ({ text: c.text, source: c.source, heading: c.heading || "" }));
+    renderCorpus();
+    const a = $("answer"); a.className = "answer"; a.textContent = "Ask a question to see an extractive answer built only from these documents.";
+    $("sources").innerHTML = ""; $("stats").innerHTML = ""; $("chunks").innerHTML = "";
+  }
+
+  $("indexOwn").addEventListener("click", () => {
+    const text = $("ownText").value.trim();
+    const msg = $("ownMsg");
+    if (text.length < 40) { msg.textContent = "Paste a bit more text first — at least a short paragraph."; return; }
+    try {
+      reindex([{ name: "your document", text }]);
+      $("restoreCorpus").hidden = false;
+      msg.textContent = "Indexed " + allChunks.length + " chunk" + (allChunks.length === 1 ? "" : "s") + " — ask a question above.";
+    } catch (e) { msg.textContent = "Could not index that text."; }
+  });
+  $("restoreCorpus").addEventListener("click", () => {
+    reindex(DOCS);
+    $("restoreCorpus").hidden = true;
+    $("ownMsg").textContent = "Restored the sample corpus.";
+  });
 })();
 </script>
   <!-- share-link: "Copy link" saves this demo's inputs in the URL (?s=...) so the link reopens with the same result. -->
   <style>
+    .owndoc { margin: 6px 0 16px; }
+    .owndoc textarea { width: 100%; box-sizing: border-box; font: 13.5px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; padding: 11px 13px; border: 1px solid var(--line, #d7dbe0); border-radius: 10px; background: var(--surface-2, #f5f6f8); color: inherit; resize: vertical; }
+    .owndoc textarea:focus { outline: 2px solid var(--accent, #0f766e); outline-offset: 1px; }
+    .ownrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 9px; }
+    .ownrow button { font: 600 13.5px system-ui, sans-serif; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--accent, #0f766e); background: var(--accent, #0f766e); color: #fff; cursor: pointer; }
+    .ownrow button.ghost { background: transparent; color: var(--accent, #0f766e); }
+    .ownmsg { font-size: 13px; color: var(--muted, #5b6472); }
     .share-link-row { display: flex; justify-content: flex-end; margin: 10px 0 0; }
     .share-link-btn { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font: inherit; max-width: 100%; }
     .share-link-btn svg { width: 16px; height: 16px; flex: none; }
